@@ -7,6 +7,7 @@ namespace DomainFlow\Tests\Unit\Provider;
 use Closure;
 use DomainFlow\Application;
 use DomainFlow\Container\Exception\ContainerException;
+use DomainFlow\SystemEvents\Interface\SystemEventFilterInterface;
 use DomainFlow\SystemEvents\Interface\SystemEventProcessorInterface;
 use DomainFlow\SystemEvents\Listener\SystemEventListener;
 use DomainFlow\SystemEvents\Processor\FileSystemEventProcessor;
@@ -233,6 +234,119 @@ final class SystemEventsServiceProviderTest extends TestCase
 
         $this->assertSame([['e1', 'boom'], ['e1', 'boom']], $reported);
     }
+
+    public function testDefaultBehaviourWithoutAFilterProcessesEveryEvent(): void
+    {
+        $dummyEvents = [
+            'pre.event' => [
+                ['order' => 1, 'timestamp' => 100, 'args' => ['preArg']],
+            ],
+        ];
+
+        $dummyApp = new DummyApplication();
+        $dummyApp->events = $dummyEvents;
+
+        $dummyWriter = new DummyWriter();
+        $dummyApp->instances[SystemEventProcessorInterface::class] = $dummyWriter;
+
+        $provider = new SystemEventsServiceProvider();
+        $provider->boot($dummyApp);
+
+        $dummyApp->trigger('*', 'new.event', 'newArg');
+
+        $expectedAll = [
+            ['pre.event', 'preArg'],
+            ['new.event', 'newArg'],
+        ];
+        $this->assertSame($expectedAll, $dummyWriter->calls);
+    }
+
+    /**
+     * @throws Throwable|NotFoundExceptionInterface|ContainerException|ContainerExceptionInterface
+     */
+    public function testFilterExcludesRejectedEventsFromTheLiveWildcardListener(): void
+    {
+        $dummyApp = new DummyApplication();
+
+        $dummyWriter = new DummyWriter();
+        $dummyApp->instances[SystemEventProcessorInterface::class] = $dummyWriter;
+
+        $filter = new AllowlistFilter(['payment.completed']);
+        $provider = new SystemEventsServiceProvider(filter: $filter);
+        $provider->boot($dummyApp);
+
+        $dummyApp->trigger('*', 'payment.completed', 'ok');
+        $dummyApp->trigger('*', 'auth.login', 'ignored');
+
+        $this->assertSame([['payment.completed', 'ok']], $dummyWriter->calls);
+    }
+
+    public function testFilterExcludesRejectedEventsFromReplay(): void
+    {
+        $dummyEvents = [
+            'payment.completed' => [
+                ['order' => 1, 'timestamp' => 100, 'args' => ['ok']],
+            ],
+            'auth.login' => [
+                ['order' => 2, 'timestamp' => 101, 'args' => ['ignored']],
+            ],
+        ];
+
+        $dummyApp = new DummyApplication();
+        $dummyApp->events = $dummyEvents;
+
+        $dummyWriter = new DummyWriter();
+
+        $filter = new AllowlistFilter(['payment.completed']);
+        $provider = new SystemEventsServiceProvider(filter: $filter);
+        $provider->replayInMemoryEvents($dummyApp, $dummyWriter, $filter);
+
+        $this->assertSame([['payment.completed', 'ok']], $dummyWriter->calls);
+    }
+
+    /**
+     * @throws Throwable|NotFoundExceptionInterface|ContainerException|ContainerExceptionInterface
+     */
+    public function testFilterAppliesConsistentlyToBothReplayAndLiveEventsDuringBoot(): void
+    {
+        $dummyEvents = [
+            'auth.login' => [
+                ['order' => 1, 'timestamp' => 100, 'args' => ['ignoredPre']],
+            ],
+        ];
+
+        $dummyApp = new DummyApplication();
+        $dummyApp->events = $dummyEvents;
+
+        $dummyWriter = new DummyWriter();
+        $dummyApp->instances[SystemEventProcessorInterface::class] = $dummyWriter;
+
+        $filter = new AllowlistFilter(['payment.completed']);
+        $provider = new SystemEventsServiceProvider(filter: $filter);
+        $provider->boot($dummyApp);
+
+        $dummyApp->trigger('*', 'payment.completed', 'ok');
+        $dummyApp->trigger('*', 'auth.login', 'ignoredLive');
+
+        $this->assertSame([['payment.completed', 'ok']], $dummyWriter->calls);
+    }
+
+    /**
+     * @throws Throwable|NotFoundExceptionInterface|ContainerException|ContainerExceptionInterface
+     */
+    public function testFilterRejectionSkipsProcessorFailureIsolationTooSinceProcessorIsNeverCalled(): void
+    {
+        $dummyApp = new DummyApplication();
+        $dummyApp->instances[SystemEventProcessorInterface::class] = new ThrowingWriter();
+
+        $filter = new AllowlistFilter(['payment.completed']);
+        $provider = new SystemEventsServiceProvider(filter: $filter);
+        $provider->boot($dummyApp);
+
+        $dummyApp->trigger('*', 'auth.login', 'ignored');
+
+        $this->addToAssertionCount(1);
+    }
 }
 
 # dummy classes
@@ -312,5 +426,22 @@ class ThrowingWriter implements SystemEventProcessorInterface
         mixed ...$args
     ): void {
         throw new RuntimeException('boom');
+    }
+}
+
+class AllowlistFilter implements SystemEventFilterInterface
+{
+    /**
+     * @param list<string> $allowed
+     */
+    public function __construct(
+        private readonly array $allowed
+    ) {
+    }
+
+    public function shouldProcess(
+        string $eventName
+    ): bool {
+        return in_array($eventName, $this->allowed, true);
     }
 }
