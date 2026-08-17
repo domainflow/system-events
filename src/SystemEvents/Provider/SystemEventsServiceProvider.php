@@ -78,8 +78,8 @@ class SystemEventsServiceProvider extends AbstractServiceProvider
         $this->replayInMemoryEvents($app, $writer);
 
         // Log all events that are fired from now on.
-        $app->on('*', static function (...$args) use ($writer) {
-            $writer->processEvent(...$args);
+        $app->on('*', static function (string $eventName, mixed ...$args) use ($writer) {
+            $writer->processEvent($eventName, ...$args);
         });
     }
 
