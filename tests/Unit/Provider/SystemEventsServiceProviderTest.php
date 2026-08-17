@@ -35,10 +35,10 @@ final class SystemEventsServiceProviderTest extends TestCase
 
         $self = $this;
         $dummyApp->bindings[SystemEventProcessorInterface::class]['closure'] = function () use ($self) {
-            return $self->createMock(SystemEventProcessorInterface::class);
+            return $self->createStub(SystemEventProcessorInterface::class);
         };
         $dummyApp->bindings[SystemEventListener::class]['closure'] = function () use ($self) {
-            return $self->createMock(SystemEventListener::class);
+            return $self->createStub(SystemEventListener::class);
         };
 
         $this->assertArrayHasKey(SystemEventProcessorInterface::class, $dummyApp->bindings);
