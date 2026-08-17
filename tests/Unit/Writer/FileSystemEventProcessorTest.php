@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DomainFlow\Tests\Unit\Writer;
 
 use DomainFlow\SystemEvents\Processor\FileSystemEventProcessor;
+use org\bovigo\vfs\vfsStream;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -111,8 +112,27 @@ final class FileSystemEventProcessorTest extends TestCase
         $method->invoke($processor, $tempDir);
 
         $this->assertTrue(is_dir($tempDir));
+        $this->assertSame(0755, fileperms($tempDir) & 0777);
 
         rmdir($tempDir);
+    }
+
+    /**
+     * @throws ReflectionException
+     */
+    public function test_createDirectoryIfNotExistsThrowsWhenMkdirFails(): void
+    {
+        vfsStream::setup('root', 0555);
+        $unwritableTarget = vfsStream::url('root/nested');
+
+        $processor = new FileSystemEventProcessor();
+        $ref = new ReflectionClass($processor);
+        $method = $ref->getMethod('createDirectoryIfNotExists');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("Failed to create log directory: $unwritableTarget");
+
+        $method->invoke($processor, $unwritableTarget);
     }
 
     public function test_processEventWritesFile(): void
