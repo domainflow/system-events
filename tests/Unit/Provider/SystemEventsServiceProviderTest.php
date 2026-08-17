@@ -16,6 +16,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\NotFoundExceptionInterface;
 use ReflectionClass;
+use RuntimeException;
 use Throwable;
 
 #[CoversClass(SystemEventsServiceProvider::class)]
@@ -141,6 +142,97 @@ final class SystemEventsServiceProviderTest extends TestCase
         $provider = new SystemEventsServiceProvider();
         $this->assertFalse($provider->isDeferred());
     }
+
+    /**
+     * @throws Throwable|NotFoundExceptionInterface|ContainerException|ContainerExceptionInterface
+     */
+    public function testBootIsolatesProcessorFailureFromWildcardListener(): void
+    {
+        $dummyApp = new DummyApplication();
+        $dummyApp->instances[SystemEventProcessorInterface::class] = new ThrowingWriter();
+
+        $provider = new SystemEventsServiceProvider();
+        $provider->boot($dummyApp);
+
+        $dummyApp->trigger('*', 'business.event', 'payload');
+
+        $this->addToAssertionCount(1);
+    }
+
+    /**
+     * @throws Throwable|NotFoundExceptionInterface|ContainerException|ContainerExceptionInterface
+     */
+    public function testBootReportsProcessorFailureThroughCustomHook(): void
+    {
+        $dummyApp = new DummyApplication();
+        $dummyApp->instances[SystemEventProcessorInterface::class] = new ThrowingWriter();
+
+        $reported = [];
+        $provider = new SystemEventsServiceProvider(
+            static function (Throwable $e, string $eventName) use (&$reported) {
+                $reported[] = [$eventName, $e->getMessage()];
+            }
+        );
+        $provider->boot($dummyApp);
+
+        $dummyApp->trigger('*', 'business.event', 'payload');
+
+        $this->assertSame([['business.event', 'boom']], $reported);
+    }
+
+    /**
+     * @throws Throwable|NotFoundExceptionInterface|ContainerException|ContainerExceptionInterface
+     */
+    public function testBootDefaultFailureHandlerLogsToPhpErrorLog(): void
+    {
+        $originalErrorLog = ini_get('error_log');
+        $tempLogFile = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'system_events_error_log_' . uniqid() . '.log';
+        ini_set('error_log', $tempLogFile);
+
+        try {
+            $dummyApp = new DummyApplication();
+            $dummyApp->instances[SystemEventProcessorInterface::class] = new ThrowingWriter();
+
+            $provider = new SystemEventsServiceProvider();
+            $provider->boot($dummyApp);
+
+            $dummyApp->trigger('*', 'business.event', 'payload');
+
+            $contents = file_get_contents($tempLogFile) ?: '';
+            $this->assertStringContainsString('business.event', $contents);
+            $this->assertStringContainsString('boom', $contents);
+        } finally {
+            ini_set('error_log', $originalErrorLog === false ? '' : $originalErrorLog);
+            if (file_exists($tempLogFile)) {
+                unlink($tempLogFile);
+            }
+        }
+    }
+
+    public function testReplayInMemoryEventsIsolatesProcessorFailure(): void
+    {
+        $dummyEvents = [
+            'e1' => [
+                ['order' => 1, 'timestamp' => 999, 'args' => ['arg1']],
+                ['order' => 2, 'timestamp' => 1000, 'args' => ['arg2']],
+            ],
+        ];
+
+        $dummyApp = new DummyApplication();
+        $dummyApp->events = $dummyEvents;
+
+        $reported = [];
+        $provider = new SystemEventsServiceProvider(
+            static function (Throwable $e, string $eventName) use (&$reported) {
+                $reported[] = [$eventName, $e->getMessage()];
+            }
+        );
+
+        $writer = new ThrowingWriter();
+        $provider->replayInMemoryEvents($dummyApp, $writer);
+
+        $this->assertSame([['e1', 'boom'], ['e1', 'boom']], $reported);
+    }
 }
 
 # dummy classes
@@ -210,5 +302,15 @@ class DummyWriter implements SystemEventProcessorInterface
         mixed ...$args
     ): void {
         $this->calls[] = array_merge([$eventName], $args);
+    }
+}
+
+class ThrowingWriter implements SystemEventProcessorInterface
+{
+    public function processEvent(
+        string $eventName,
+        mixed ...$args
+    ): void {
+        throw new RuntimeException('boom');
     }
 }
