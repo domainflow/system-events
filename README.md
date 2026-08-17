@@ -14,7 +14,7 @@ The **DomainFlow System Events** package captures and processes application life
 ## ✨ Core Functionality
 
 - **File-based Logging:** Capture and persist events to disk with a customizable template format.
-- **Listener Architecture:** Uses attribute-driven event listeners to automatically register catch-all handlers.
+- **Listener Architecture:** A wildcard listener, registered by the service provider, forwards every fired event to the configured destination.
 - **Post-Boot Replay:** Replays pre-registered events that occurred before the service provider was loaded.
 - **Environment Customization:** Configure log paths and templates via environment variables.
 
