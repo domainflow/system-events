@@ -17,7 +17,7 @@
     "source": "https://github.com/domainflow/system-events"
   },
   "require": {
-    "php": "^8.3||^8.4",
+    "php": "^8.4",
     "domainflow/core": "^0.2.0"
   },
   "require-dev": {
