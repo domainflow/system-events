@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace DomainFlow\SystemEvents\Provider;
 
+use Closure;
 use DomainFlow\Application;
 use DomainFlow\Container\Exception\ContainerException;
 use DomainFlow\Service\AbstractServiceProvider;
@@ -30,6 +31,18 @@ class SystemEventsServiceProvider extends AbstractServiceProvider
     ];
 
     public bool $defer = false;
+
+    /**
+     * Optional hook invoked whenever a processor fails to process an event, instead of
+     * letting the failure propagate into the code that fired the original event. Defaults
+     * to logging via PHP's error_log().
+     *
+     * @param Closure(Throwable, string): void|null $onProcessingFailure
+     */
+    public function __construct(
+        private readonly ?Closure $onProcessingFailure = null
+    ) {
+    }
 
     /**
      * Register the system events logging services.
@@ -78,9 +91,38 @@ class SystemEventsServiceProvider extends AbstractServiceProvider
         $this->replayInMemoryEvents($app, $writer);
 
         // Log all events that are fired from now on.
-        $app->on('*', static function (string $eventName, mixed ...$args) use ($writer) {
-            $writer->processEvent($eventName, ...$args);
+        $app->on('*', function (string $eventName, mixed ...$args) use ($writer) {
+            try {
+                $writer->processEvent($eventName, ...$args);
+            } catch (Throwable $e) {
+                $this->reportProcessingFailure($e, $eventName);
+            }
         });
+    }
+
+    /**
+     * Report a processor failure without letting it propagate into the code that fired
+     * the original, unrelated event.
+     *
+     * @param Throwable $e
+     * @param string $eventName
+     * @return void
+     */
+    private function reportProcessingFailure(
+        Throwable $e,
+        string $eventName
+    ): void {
+        if ($this->onProcessingFailure !== null) {
+            ($this->onProcessingFailure)($e, $eventName);
+
+            return;
+        }
+
+        error_log(sprintf(
+            '[system-events] Failed to process event "%s": %s',
+            $eventName,
+            $e->getMessage()
+        ));
     }
 
     /**
@@ -109,7 +151,11 @@ class SystemEventsServiceProvider extends AbstractServiceProvider
         usort($all, fn ($a, $b) => $a['order'] <=> $b['order']);
 
         foreach ($all as $evt) {
-            $writer->processEvent($evt['eventName'], ...$evt['args']);
+            try {
+                $writer->processEvent($evt['eventName'], ...$evt['args']);
+            } catch (Throwable $e) {
+                $this->reportProcessingFailure($e, $evt['eventName']);
+            }
         }
     }
 
