@@ -60,6 +60,34 @@ jobs:
       - name: Run PHPStan
         run: composer phpstan
 
+  audit:
+    runs-on: ubuntu-latest
+    needs: setup
+    strategy:
+      matrix:
+        php-version: ['8.4', '8.5']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: xdebug, mbstring
+
+      - name: Restore vendor folder
+        uses: actions/download-artifact@v4
+        with:
+          name: vendor-${{ matrix.php-version }}
+          path: vendor
+
+      - name: Add permissions for executables
+        run: chmod -R +x vendor/bin
+
+      - name: Run Composer audit
+        run: composer audit
+
   unit-tests:
     runs-on: ubuntu-latest
     needs: setup

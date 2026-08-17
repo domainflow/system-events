@@ -22,7 +22,7 @@ The **DomainFlow System Events** package captures and processes application life
 
 ## ⚙️ Requirements
 
-- **PHP 8.3+**
+- **PHP 8.4 or 8.5**
 - Requires `domainflow/core`
 
 ---
