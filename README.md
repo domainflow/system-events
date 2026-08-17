@@ -4,7 +4,7 @@
 ![Packagist Version](https://img.shields.io/packagist/v/domainflow/system-events)
 ![PHP Version](https://img.shields.io/packagist/php-v/domainflow/system-events)
 ![License](https://img.shields.io/github/license/domainflow/system-events)
-![PHPStan](https://img.shields.io/badge/PHPStan-Level%209-brightgreen.svg)
+![PHPStan](https://img.shields.io/badge/PHPStan-Level%2010-brightgreen.svg)
 
 The **DomainFlow System Events** package captures and processes application lifecycle events using an extensible event-driven architecture. It includes a file-system logger with customizable log templates.
 
