@@ -40,20 +40,56 @@
     }
   },
   "scripts": {
-    "test": "./vendor/bin/phpunit --testsuite=Unit -c phpunit.xml",
-    "test-integration": "./vendor/bin/phpunit --testsuite=Integration -c phpunit.xml",
-    "test-all": "./vendor/bin/phpunit -c phpunit.xml",
-    "code-coverage": [
+    "test": [
       "@putenv XDEBUG_MODE=coverage",
-      "./vendor/bin/phpunit -c phpunit.xml --testsuite=Unit --coverage-html=build/coverage"
+      "./vendor/bin/phpunit --testsuite=Unit -c phpunit.xml"
     ],
-    "phpstan": "./vendor/bin/phpstan analyse -c phpstan.neon",
-    "fix": [
-      "./vendor/bin/php-cs-fixer fix src tests --config=./php_cs.dist.php"
+    "test-integration": [
+      "@putenv XDEBUG_MODE=coverage",
+      "./vendor/bin/phpunit --testsuite=Integration -c phpunit.xml"
+    ],
+    "test-acceptance": [
+      "@putenv XDEBUG_MODE=coverage",
+      "./vendor/bin/phpunit --testsuite=Acceptance -c phpunit.xml"
+    ],
+    "test-all": [
+      "@putenv XDEBUG_MODE=coverage",
+      "./vendor/bin/phpunit -c phpunit.xml"
+    ],
+    "test:coverage": [
+      "@putenv XDEBUG_MODE=coverage",
+      "./vendor/bin/phpunit -c phpunit.xml --coverage-html=build/coverage",
+      "@php tools/assert-full-line-coverage.php build/coverage/clover.xml"
+    ],
+    "code-coverage": "@test:coverage",
+    "phpstan": "./vendor/bin/phpstan analyse -c phpstan.neon --memory-limit=1G",
+    "lint": "./vendor/bin/php-cs-fixer check src tests --config=./php_cs.dist.php --diff",
+    "format": "./vendor/bin/php-cs-fixer fix src tests --config=./php_cs.dist.php",
+    "fix": "@format",
+    "quality": [
+      "@composer validate --strict --no-check-publish --no-check-lock",
+      "@lint",
+      "@phpstan",
+      "@test:coverage",
+      "@composer audit"
     ]
   },
+  "scripts-descriptions": {
+    "test": "Run the PHPUnit unit suite",
+    "test-integration": "Run the PHPUnit integration suite",
+    "test-acceptance": "Run the PHPUnit acceptance suite",
+    "test-all": "Run the complete PHPUnit suite",
+    "test:coverage": "Run the complete suite with line-coverage reporting",
+    "code-coverage": "Alias for test:coverage",
+    "phpstan": "Run static analysis",
+    "lint": "Check PHP formatting without modifying files",
+    "format": "Apply PHP formatting fixes",
+    "quality": "Run every mandatory package quality gate"
+  },
   "config": {
-    "preferred-install": "dist"
+    "preferred-install": "dist",
+    "sort-packages": true,
+    "optimize-autoloader": true
   },
   "minimum-stability": "dev",
   "prefer-stable": true
