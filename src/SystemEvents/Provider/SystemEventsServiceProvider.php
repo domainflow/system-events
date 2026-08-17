@@ -8,6 +8,7 @@ use Closure;
 use DomainFlow\Application;
 use DomainFlow\Container\Exception\ContainerException;
 use DomainFlow\Service\AbstractServiceProvider;
+use DomainFlow\SystemEvents\Interface\SystemEventFilterInterface;
 use DomainFlow\SystemEvents\Interface\SystemEventProcessorInterface;
 use DomainFlow\SystemEvents\Listener\SystemEventListener;
 use DomainFlow\SystemEvents\Processor\FileSystemEventProcessor;
@@ -33,14 +34,18 @@ class SystemEventsServiceProvider extends AbstractServiceProvider
     public bool $defer = false;
 
     /**
-     * Optional hook invoked whenever a processor fails to process an event, instead of
-     * letting the failure propagate into the code that fired the original event. Defaults
-     * to logging via PHP's error_log().
-     *
-     * @param Closure(Throwable, string): void|null $onProcessingFailure
+     * @param Closure(Throwable, string): void|null $onProcessingFailure Optional hook
+     *        invoked whenever a processor fails to process an event, instead of letting
+     *        the failure propagate into the code that fired the original event. Defaults
+     *        to logging via PHP's error_log().
+     * @param SystemEventFilterInterface|null $filter Optional filter deciding which event
+     *        names reach the configured processor. Defaults to null, meaning every event
+     *        is processed — identical to the pre-filter behaviour. Applied identically to
+     *        replayInMemoryEvents() and the live wildcard listener.
      */
     public function __construct(
-        private readonly ?Closure $onProcessingFailure = null
+        private readonly ?Closure $onProcessingFailure = null,
+        private readonly ?SystemEventFilterInterface $filter = null
     ) {
     }
 
@@ -88,10 +93,14 @@ class SystemEventsServiceProvider extends AbstractServiceProvider
         $writer = $app->get(SystemEventProcessorInterface::class);
 
         // Log all events that were fired before the provider was registered.
-        $this->replayInMemoryEvents($app, $writer);
+        $this->replayInMemoryEvents($app, $writer, $this->filter);
 
         // Log all events that are fired from now on.
-        $app->on('*', function (string $eventName, mixed ...$args) use ($writer) {
+        $filter = $this->filter;
+        $app->on('*', function (string $eventName, mixed ...$args) use ($writer, $filter) {
+            if ($filter !== null && !$filter->shouldProcess($eventName)) {
+                return;
+            }
             try {
                 $writer->processEvent($eventName, ...$args);
             } catch (Throwable $e) {
@@ -130,11 +139,13 @@ class SystemEventsServiceProvider extends AbstractServiceProvider
      *
      * @param Application $app
      * @param SystemEventProcessorInterface $writer
+     * @param SystemEventFilterInterface|null $filter
      * @return void
      */
     public function replayInMemoryEvents(
         Application $app,
-        SystemEventProcessorInterface $writer
+        SystemEventProcessorInterface $writer,
+        ?SystemEventFilterInterface $filter = null
     ): void {
         $all = [];
         foreach ($app->getEvents() as $eventName => $firings) {
@@ -151,6 +162,9 @@ class SystemEventsServiceProvider extends AbstractServiceProvider
         usort($all, fn ($a, $b) => $a['order'] <=> $b['order']);
 
         foreach ($all as $evt) {
+            if ($filter !== null && !$filter->shouldProcess($evt['eventName'])) {
+                continue;
+            }
             try {
                 $writer->processEvent($evt['eventName'], ...$evt['args']);
             } catch (Throwable $e) {
