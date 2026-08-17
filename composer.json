@@ -18,7 +18,7 @@
   },
   "require": {
     "php": "^8.3||^8.4",
-    "domainflow/core": "^0.1.0"
+    "domainflow/core": "^0.2.0"
   },
   "require-dev": {
     "friendsofphp/php-cs-fixer": "^3.70",
